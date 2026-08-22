@@ -5,8 +5,6 @@ A centralized HR platform built by Karthik and Akshay to digitize core operation
 
 ## User Roles & Authorization
 
-## User Roles & Authorization
-
 * **Employee:** 
   * Access restricted to personal data.
   * Can read and write personal information.
