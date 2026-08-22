@@ -1,14 +1,19 @@
 # Virtual Environments
 venv/
-backend/venv/
 .venv/
 env/
 ENV/
 env.bak/
 venv.bak/
 
-# Local Notes / Context
-project_context.md
+# Django Specific
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+static/collected/
+*.log
 
 # Python Bytecode & Cache
 __pycache__/
@@ -32,6 +37,8 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.manifest
+*.manifest
 
 # Environment variables & secrets
 .env
@@ -39,9 +46,10 @@ share/python-wheels/
 .env.*.local
 !.env.example
 
-# Databases
+# Databases (excluding PostgreSQL init scripts)
 *.sqlite3
 *.db
+*.db-journal
 
 # Logs
 *.log
@@ -50,6 +58,10 @@ logs/
 # IDE / Editor Files
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 *.swp
 *.swo
 *~
@@ -67,5 +79,11 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
-test_*.py
-backend/test_*.py
+.tox/
+.nox/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
