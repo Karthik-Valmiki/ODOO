@@ -11,9 +11,9 @@ def clean_alpha(text: str) -> str:
 
 def generate_employee_id(company_name: str, first_name: str, last_name: str, year: Optional[int] = None) -> str:
     """
-    Auto-generate Employee ID per Dayflow specification:
-    Format: [CompanyPrefix][NameInitials][Year][Sequence]
-    Example: ODROSH2026001
+    Auto-generate Employee ID per WorkDesk specification:
+    Format: [Comp Prefix][Initials][Year][000-Sequence]
+    Example: WDROSH2026001
     """
     if not year:
         year = datetime.now().year
@@ -25,7 +25,7 @@ def generate_employee_id(company_name: str, first_name: str, last_name: str, yea
     elif len(comp_clean) == 1:
         comp_prefix = comp_clean + "X"
     else:
-        comp_prefix = "DF"  # Dayflow default
+        comp_prefix = "WD"  # WorkDesk default
 
     # 2. Name Initials: 2 of first_name + 2 of last_name
     fn_clean = clean_alpha(first_name)

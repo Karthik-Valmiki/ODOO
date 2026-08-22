@@ -18,7 +18,7 @@ export const App: React.FC = () => {
   const [punchTick, setPunchTick] = useState(0);
 
   const loadUser = () => {
-    const token = localStorage.getItem("dayflow_access_token");
+    const token = localStorage.getItem("workdesk_access_token");
     if (token) {
       apiClient
         .get("/auth/me")
@@ -27,7 +27,7 @@ export const App: React.FC = () => {
           setShowAuthModal(false);
         })
         .catch(() => {
-          localStorage.removeItem("dayflow_access_token");
+          localStorage.removeItem("workdesk_access_token");
           setShowAuthModal(true);
         })
         .finally(() => setLoading(false));
@@ -48,8 +48,8 @@ export const App: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("dayflow_access_token");
-    localStorage.removeItem("dayflow_refresh_token");
+    localStorage.removeItem("workdesk_access_token");
+    localStorage.removeItem("workdesk_refresh_token");
     setCurrentUser(null);
     setShowAuthModal(true);
   };

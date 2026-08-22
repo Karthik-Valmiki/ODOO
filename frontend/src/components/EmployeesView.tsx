@@ -226,7 +226,7 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
                 setActiveEmployee(emp);
                 setActiveTab("resume");
               }}
-              className="relative bg-white border border-gray-200 hover:border-[#2F65F6] hover:shadow-md rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col items-center text-center gap-2.5 group"
+              className="relative bg-white border border-gray-200 hover:border-[#2F65F6] hover:shadow-md rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col items-center justify-between text-center group aspect-square"
             >
               {/* Real-time Status Dot in Top-Right Corner */}
               <div

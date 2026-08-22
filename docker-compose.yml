@@ -1,39 +1,51 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:16-alpine
-    container_name: dayflow_db
+    container_name: workdesk_db
     environment:
-      - POSTGRES_USER=dayflow_user
-      - POSTGRES_PASSWORD=dayflow_pass
-      - POSTGRES_DB=dayflow_db
+      - POSTGRES_USER=workdesk_user
+      - POSTGRES_PASSWORD=workdesk_pass
+      - POSTGRES_DB=workdesk_db
     ports:
       - "5433:5432"
     volumes:
-      - dayflow_db_data:/var/lib/postgresql/data
+      - workdesk_db_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     restart: always
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dayflow_user -d dayflow_db"]
+      test: ["CMD-SHELL", "pg_isready -U workdesk_user -d workdesk_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: dayflow_pgadmin
+  backend:
+    build: ./backend
+    container_name: workdesk_backend
     environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@dayflow.dev
-      - PGADMIN_DEFAULT_PASSWORD=admin123
+      - DB_NAME=workdesk_db
+      - DB_USER=workdesk_user
+      - DB_PASSWORD=workdesk_pass
+      - DB_HOST=db
+      - DB_PORT=5432
+      - SECRET_KEY=workdesk-secret-key-2026
     ports:
-      - "5050:80"
-    volumes:
-      - dayflow_pgadmin_data:/var/lib/pgadmin
-    restart: always
+      - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - VITE_API_URL=/api
+    container_name: workdesk_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
 
 volumes:
-  dayflow_db_data:
-  dayflow_pgadmin_data:
+  workdesk_db_data:

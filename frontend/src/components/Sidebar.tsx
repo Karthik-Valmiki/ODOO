@@ -31,7 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onOpenProfile,
   onLogout,
-  companyName = "Happy Solutions",
+  companyName = "WorkDesk",
   companyLogoUrl,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -68,7 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               />
             ) : (
               <div className="w-9 h-9 rounded-xl bg-[#2F65F6] flex items-center justify-center text-white flex-shrink-0 shadow-sm">
-                {/* Happy Solutions Smiling Face Logo */}
+                {/* WorkDesk Logo */}
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <circle cx="8" cy="10" r="1.5" fill="white" />
                   <circle cx="16" cy="10" r="1.5" fill="white" />
