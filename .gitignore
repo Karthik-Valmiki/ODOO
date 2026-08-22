@@ -67,3 +67,5 @@ Thumbs.db
 .coverage
 htmlcov/
 .pytest_cache/
+test_*.py
+backend/test_*.py

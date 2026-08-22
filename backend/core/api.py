@@ -1,5 +1,6 @@
 import uuid
-from datetime import date
+import calendar
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 from django.db.models import Q
 from ninja import NinjaAPI, Query
@@ -20,6 +21,8 @@ from core.utils import (
     generate_employee_id,
     resolve_employee_status_dot,
     calculate_salary_components,
+    calculate_work_hours,
+    auto_close_previous_attendances,
 )
 from core.schemas import (
     AdminSignupIn,
@@ -35,7 +38,14 @@ from core.schemas import (
     EmployeeUpdateIn,
     EmployeeOut,
     CompanyStatsOut,
-    AttendanceSchema,
+    PunchStatusOut,
+    AttendanceRecordOut,
+    AttendanceSummaryOut,
+    AttendanceOverrideIn,
+    LeaveApplyIn,
+    LeaveOut,
+    LeaveActionIn,
+    LeaveBalanceOut,
     LeaveRequestSchema,
     LeaveRequestIn,
 )
@@ -80,24 +90,21 @@ def admin_signup(request, payload: AdminSignupIn):
     if User.objects.filter(email=payload.email).exists():
         return 400, {"error": "An account with this email already exists"}
 
-    # Generate Admin Employee ID (e.g. ODADMI2026001 or using initials)
     employee_id = generate_employee_id(
         company_name=payload.company_name,
         first_name=payload.first_name,
         last_name=payload.last_name,
     )
 
-    # Create Admin User
     hashed_pwd = hash_password(payload.password)
     user = User.objects.create(
         employee_id=employee_id,
         email=payload.email,
         password_hash=hashed_pwd,
         role="ADMIN",
-        is_verified=True,  # Admin sets their own password, verified immediately
+        is_verified=True,
     )
 
-    # Create Admin Profile with company details in salary_structure JSONB
     company_data = {
         "company_name": payload.company_name,
         "company_logo_url": payload.company_logo_url,
@@ -116,7 +123,6 @@ def admin_signup(request, payload: AdminSignupIn):
         salary_structure=company_data,
     )
 
-    # Generate JWT Tokens
     access_token = create_access_token(user_id=str(user.id), role=user.role)
     refresh_token = create_refresh_token(user_id=str(user.id), role=user.role)
 
@@ -158,7 +164,6 @@ def login(request, payload: LoginIn):
     if not user or not verify_password(payload.password, user.password_hash):
         return 401, {"error": "Invalid login credentials (email/ID or password)"}
 
-    # Extract company info if available
     profile = getattr(user, "profile", None)
     company_name = None
     company_logo = None
@@ -176,7 +181,6 @@ def login(request, payload: LoginIn):
             company_name = profile.salary_structure.get("company_name")
             company_logo = profile.salary_structure.get("company_logo_url")
 
-    # If employee's profile doesn't have company_name, look up the Admin's company
     if not company_name:
         admin_profile = Profile.objects.filter(user__role="ADMIN").first()
         if admin_profile and isinstance(admin_profile.salary_structure, dict):
@@ -297,7 +301,7 @@ def get_current_user_profile(request):
 
 
 # ==========================================
-# Employee Onboarding & Management (Phase 4)
+# Employee Management Endpoints (Phase 4)
 # ==========================================
 
 @api.get("/employees", auth=jwt_auth, response=List[EmployeeOut], tags=["Employees"])
@@ -330,7 +334,6 @@ def list_employees(
         p = getattr(u, "profile", None)
         dot = resolve_employee_status_dot(u, today)
 
-        # Filter by status dot if requested ("GREEN", "BLUE", "YELLOW")
         if status and dot.upper() != status.upper():
             continue
 
@@ -341,10 +344,8 @@ def list_employees(
             if emp_dept.lower() != department.lower():
                 continue
 
-        # Hide sensitive salary figures if requester is a regular employee viewing someone else
         visible_salary = salary_data
         if not current_user.is_admin and u.id != current_user.id:
-            # Mask salary numbers for privacy
             visible_salary = {
                 k: v for k, v in salary_data.items()
                 if k not in ("monthly_wage", "yearly_wage", "basic", "hra", "fixed_allowance", "pf_employee", "pf_employer")
@@ -378,20 +379,12 @@ def list_employees(
 
 @api.post("/employees", auth=jwt_auth, response={201: EmployeeCreateOut, 400: dict, 403: dict}, tags=["Employees"])
 def create_employee(request, payload: EmployeeCreateIn):
-    """
-    Admin onboards a new employee.
-    Auto-generates:
-      1. Employee ID per formula: [CompanyPrefix][NameInitials][Year][Sequence] (e.g. ODROSH2026001)
-      2. Secure temporary password.
-      3. Sets is_verified = False so employee is forced to change password on first login.
-      4. Auto-calculates standard salary components based on monthly wage.
-    """
+    """Admin onboards a new employee."""
     admin_user = require_admin(request)
 
     if User.objects.filter(email=payload.email).exists():
         return 400, {"error": f"An employee with email '{payload.email}' already exists"}
 
-    # Fetch company name from admin profile
     admin_profile = Profile.objects.filter(user=admin_user).first()
     company_name = "Dayflow"
     company_logo = None
@@ -399,31 +392,26 @@ def create_employee(request, payload: EmployeeCreateIn):
         company_name = admin_profile.salary_structure.get("company_name", "Dayflow")
         company_logo = admin_profile.salary_structure.get("company_logo_url")
 
-    # 1. Generate Employee ID
     employee_id = generate_employee_id(
         company_name=company_name,
         first_name=payload.first_name,
         last_name=payload.last_name,
     )
 
-    # 2. Generate temporary password
     temp_password = generate_temp_password()
     hashed_pwd = hash_password(temp_password)
 
-    # 3. Create User account
     role = payload.role.upper() if payload.role in ("ADMIN", "EMPLOYEE") else "EMPLOYEE"
     user = User.objects.create(
         employee_id=employee_id,
         email=payload.email,
         password_hash=hashed_pwd,
         role=role,
-        is_verified=False,  # Forces password change on first login
+        is_verified=False,
     )
 
-    # 4. Compute 6 salary components
     salary_breakdown = calculate_salary_components(payload.monthly_wage or 0.0)
 
-    # Build full structured profile data
     extended_data = {
         "company_name": company_name,
         "company_logo_url": company_logo,
@@ -443,7 +431,6 @@ def create_employee(request, payload: EmployeeCreateIn):
         **salary_breakdown,
     }
 
-    # 5. Create Profile
     profile = Profile.objects.create(
         user=user,
         first_name=payload.first_name,
@@ -467,11 +454,7 @@ def create_employee(request, payload: EmployeeCreateIn):
 
 @api.get("/employees/{user_id}", auth=jwt_auth, response={200: EmployeeOut, 404: dict}, tags=["Employees"])
 def get_employee(request, user_id: uuid.UUID):
-    """
-    Get detailed profile of a specific employee.
-    Admins can view all tabs (Resume, Private Info, Salary Info).
-    Regular employees cannot view other employees' salary info.
-    """
+    """Get detailed profile of a specific employee."""
     current_user: User = request.auth
     target_user = User.objects.select_related("profile").filter(id=user_id).first()
 
@@ -481,7 +464,6 @@ def get_employee(request, user_id: uuid.UUID):
     p = getattr(target_user, "profile", None)
     salary_data = p.salary_structure if (p and isinstance(p.salary_structure, dict)) else {}
 
-    # Privacy check: mask salary if regular employee is viewing another employee
     if not current_user.is_admin and current_user.id != target_user.id:
         salary_data = {
             k: v for k, v in salary_data.items()
@@ -512,25 +494,19 @@ def get_employee(request, user_id: uuid.UUID):
 
 @api.put("/employees/{user_id}", auth=jwt_auth, response={200: EmployeeOut, 400: dict, 403: dict, 404: dict}, tags=["Employees"])
 def update_employee(request, user_id: uuid.UUID, payload: EmployeeUpdateIn):
-    """
-    Update employee profile.
-    Admins can update everything including salary.
-    Employees can update their own personal info.
-    """
+    """Update employee profile."""
     current_user: User = request.auth
     target_user = User.objects.select_related("profile").filter(id=user_id).first()
 
     if not target_user:
         return 404, {"error": "Employee not found"}
 
-    # Authorization check
     if not current_user.is_admin and current_user.id != target_user.id:
         return 403, {"error": "You are not authorized to update another employee's profile"}
 
     profile, _ = Profile.objects.get_or_create(user=target_user)
     curr_salary = profile.salary_structure if isinstance(profile.salary_structure, dict) else {}
 
-    # Basic profile updates
     if payload.first_name is not None:
         profile.first_name = payload.first_name
     if payload.last_name is not None:
@@ -542,7 +518,6 @@ def update_employee(request, user_id: uuid.UUID, payload: EmployeeUpdateIn):
     if payload.profile_picture_url is not None:
         profile.profile_picture_url = payload.profile_picture_url
 
-    # Extended info updates in JSONB
     extended_fields = [
         "department", "designation", "date_of_joining", "dob",
         "gender", "nationality", "marital_status", "personal_email",
@@ -553,7 +528,6 @@ def update_employee(request, user_id: uuid.UUID, payload: EmployeeUpdateIn):
         if val is not None:
             curr_salary[field] = val
 
-    # Salary update (Admin only)
     if payload.monthly_wage is not None:
         if not current_user.is_admin:
             return 403, {"error": "Only Admins can modify salary information"}
@@ -635,29 +609,548 @@ def get_company_stats(request):
 
 
 # ==========================================
-# Leave Requests (Basic endpoints)
+# Phase 5: Attendance & Overtime Endpoints
 # ==========================================
 
-@api.get("/leave-requests", auth=jwt_auth, response=List[LeaveRequestSchema], tags=["Leaves"])
-def list_leave_requests(request):
+@api.post("/attendance/punch-in", auth=jwt_auth, response={200: PunchStatusOut, 400: dict}, tags=["Attendance"])
+def punch_in(request):
+    """
+    Punch In for work.
+    Auto-closes previous open check-ins from earlier dates.
+    Sets check_in time and marks status as PRESENT.
+    """
     user: User = request.auth
-    if user.is_admin:
-        return LeaveRequest.objects.all().order_by("-created_at")
-    return LeaveRequest.objects.filter(user=user).order_by("-created_at")
+    today = date.today()
+    now_time = datetime.now(timezone.utc)
+
+    # 1. Edge Case: Auto-close any unclosed attendances from prior days
+    auto_close_previous_attendances(user, today)
+
+    # 2. Check today's attendance record
+    attendance = Attendance.objects.filter(user=user, record_date=today).first()
+    if attendance:
+        if attendance.check_in and attendance.check_out is None:
+            return 400, {"error": "You are already punched in today"}
+        # If employee punched out earlier and punches in again, clear check_out and resume
+        attendance.check_in = now_time
+        attendance.check_out = None
+        attendance.status = "PRESENT"
+        attendance.save()
+    else:
+        attendance = Attendance.objects.create(
+            user=user,
+            record_date=today,
+            check_in=now_time,
+            check_out=None,
+            status="PRESENT",
+        )
+
+    return 200, PunchStatusOut(
+        is_punched_in=True,
+        record_date=attendance.record_date,
+        check_in=attendance.check_in,
+        check_out=attendance.check_out,
+        work_hours=0.0,
+        extra_hours=0.0,
+        status=attendance.status,
+    )
 
 
-@api.post("/leave-requests", auth=jwt_auth, response={201: LeaveRequestSchema, 400: dict}, tags=["Leaves"])
-def create_leave_request(request, payload: LeaveRequestIn):
+@api.post("/attendance/punch-out", auth=jwt_auth, response={200: PunchStatusOut, 400: dict}, tags=["Attendance"])
+def punch_out(request):
+    """
+    Punch Out from work.
+    Calculates standard work hours (<=8h) and extra/overtime hours (>8h).
+    Updates attendance status (PRESENT / HALF_DAY / ABSENT).
+    """
     user: User = request.auth
+    today = date.today()
+    now_time = datetime.now(timezone.utc)
+
+    attendance = Attendance.objects.filter(user=user, record_date=today).first()
+    if not attendance or not attendance.check_in:
+        return 400, {"error": "You have not punched in today"}
+
+    if attendance.check_out is not None:
+        return 400, {"error": "You have already punched out today"}
+
+    attendance.check_out = now_time
+    work_hrs, extra_hrs, status = calculate_work_hours(attendance.check_in, now_time)
+    attendance.status = status
+    attendance.save()
+
+    return 200, PunchStatusOut(
+        is_punched_in=False,
+        record_date=attendance.record_date,
+        check_in=attendance.check_in,
+        check_out=attendance.check_out,
+        work_hours=work_hrs,
+        extra_hours=extra_hrs,
+        status=attendance.status,
+    )
+
+
+@api.get("/attendance/today", auth=jwt_auth, response=PunchStatusOut, tags=["Attendance"])
+def get_today_punch_status(request):
+    """Get current user's punch in/out status for today."""
+    user: User = request.auth
+    today = date.today()
+    attendance = Attendance.objects.filter(user=user, record_date=today).first()
+
+    if not attendance or not attendance.check_in:
+        return PunchStatusOut(
+            is_punched_in=False,
+            record_date=today,
+            check_in=None,
+            check_out=None,
+            work_hours=0.0,
+            extra_hours=0.0,
+            status="ABSENT",
+        )
+
+    is_punched_in = attendance.check_in is not None and attendance.check_out is None
+    work_hrs = 0.0
+    extra_hrs = 0.0
+
+    if attendance.check_out:
+        work_hrs, extra_hrs, _ = calculate_work_hours(attendance.check_in, attendance.check_out)
+    elif attendance.check_in:
+        # Live elapsed work hours
+        work_hrs, extra_hrs, _ = calculate_work_hours(attendance.check_in, datetime.now(timezone.utc))
+
+    return PunchStatusOut(
+        is_punched_in=is_punched_in,
+        record_date=attendance.record_date,
+        check_in=attendance.check_in,
+        check_out=attendance.check_out,
+        work_hours=work_hrs,
+        extra_hours=extra_hrs,
+        status=attendance.status,
+    )
+
+
+@api.get("/attendance", auth=jwt_auth, response=List[AttendanceRecordOut], tags=["Attendance"])
+def list_attendance_records(
+    request,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    employee_id: Optional[str] = None,
+    status: Optional[str] = None,
+):
+    """
+    List attendance records with work hours and overtime calculations.
+    Admin sees all employees; Employees see their own records.
+    """
+    user: User = request.auth
+    qs = Attendance.objects.select_related("user", "user__profile").order_by("-record_date", "-check_in")
+
+    if not user.is_admin:
+        qs = qs.filter(user=user)
+    else:
+        if employee_id:
+            qs = qs.filter(user__employee_id__icontains=employee_id.strip())
+
+    if date_from:
+        qs = qs.filter(record_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(record_date__lte=date_to)
+    if status:
+        qs = qs.filter(status__iexact=status.strip())
+
+    results = []
+    for att in qs:
+        u = att.user
+        p = getattr(u, "profile", None)
+        emp_name = p.full_name if p else u.employee_id
+        pic = p.profile_picture_url if p else None
+
+        work_hrs, extra_hrs, _ = calculate_work_hours(att.check_in, att.check_out)
+
+        results.append(
+            AttendanceRecordOut(
+                id=att.id,
+                user_id=u.id,
+                employee_id=u.employee_id,
+                employee_name=emp_name,
+                profile_picture_url=pic,
+                record_date=att.record_date,
+                check_in=att.check_in,
+                check_out=att.check_out,
+                work_hours=work_hrs,
+                extra_hours=extra_hrs,
+                status=att.status,
+            )
+        )
+
+    return results
+
+
+@api.get("/attendance/summary", auth=jwt_auth, response=AttendanceSummaryOut, tags=["Attendance"])
+def get_attendance_summary(
+    request,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    user_id: Optional[uuid.UUID] = None,
+):
+    """
+    Get monthly attendance statistics:
+    Total present days, half days, absences, approved leaves, total work hours & overtime hours.
+    """
+    current_user: User = request.auth
+    target_user = current_user
+    if user_id and current_user.is_admin:
+        target_user = User.objects.filter(id=user_id).first() or current_user
+
+    now = date.today()
+    m = month or now.month
+    y = year or now.year
+
+    # Calculate total working days in this month (Monday-Friday)
+    num_days = calendar.monthrange(y, m)[1]
+    working_days = sum(1 for d in range(1, num_days + 1) if date(y, m, d).weekday() < 5)
+
+    records = Attendance.objects.filter(
+        user=target_user,
+        record_date__year=y,
+        record_date__month=m,
+    )
+
+    present_count = 0
+    half_day_count = 0
+    absent_count = 0
+    leave_count = 0
+    total_work_hrs = 0.0
+    total_ot_hrs = 0.0
+
+    for r in records:
+        if r.status == "PRESENT":
+            present_count += 1
+        elif r.status == "HALF_DAY":
+            half_day_count += 1
+        elif r.status == "LEAVE":
+            leave_count += 1
+        elif r.status == "ABSENT":
+            absent_count += 1
+
+        w_hrs, ot_hrs, _ = calculate_work_hours(r.check_in, r.check_out)
+        total_work_hrs += w_hrs
+        total_ot_hrs += ot_hrs
+
+    return AttendanceSummaryOut(
+        total_present=present_count,
+        total_half_days=half_day_count,
+        total_absent=absent_count,
+        total_leaves=leave_count,
+        total_work_hours=round(total_work_hrs, 2),
+        total_overtime_hours=round(total_ot_hrs, 2),
+        working_days_in_month=working_days,
+    )
+
+
+@api.post("/attendance/override", auth=jwt_auth, response={200: AttendanceRecordOut, 400: dict, 403: dict}, tags=["Attendance"])
+def override_attendance(request, payload: AttendanceOverrideIn):
+    """Admin manual override or creation of employee attendance."""
+    require_admin(request)
+    target_user = User.objects.select_related("profile").filter(id=payload.user_id).first()
+    if not target_user:
+        return 400, {"error": "Target user does not exist"}
+
+    att, _ = Attendance.objects.get_or_create(
+        user=target_user,
+        record_date=payload.record_date,
+        defaults={"status": payload.status},
+    )
+
+    if payload.check_in is not None:
+        att.check_in = payload.check_in
+    if payload.check_out is not None:
+        att.check_out = payload.check_out
+    att.status = payload.status
+    att.save()
+
+    w_hrs, ot_hrs, _ = calculate_work_hours(att.check_in, att.check_out)
+    p = getattr(target_user, "profile", None)
+
+    return 200, AttendanceRecordOut(
+        id=att.id,
+        user_id=target_user.id,
+        employee_id=target_user.employee_id,
+        employee_name=p.full_name if p else target_user.employee_id,
+        profile_picture_url=p.profile_picture_url if p else None,
+        record_date=att.record_date,
+        check_in=att.check_in,
+        check_out=att.check_out,
+        work_hours=w_hrs,
+        extra_hours=ot_hrs,
+        status=att.status,
+    )
+
+
+# ==========================================
+# Phase 6: Leave Management & Overlap Endpoints
+# ==========================================
+
+@api.post("/leaves/apply", auth=jwt_auth, response={201: LeaveOut, 400: dict}, tags=["Leaves"])
+def apply_leave(request, payload: LeaveApplyIn):
+    """
+    Apply for time off.
+    Checks for overlapping Pending or Approved leaves.
+    """
+    user: User = request.auth
+
     if payload.end_date < payload.start_date:
-        return 400, {"error": "End date must be after or on start date"}
+        return 400, {"error": "End date must be on or after start date"}
+
+    leave_type = payload.leave_type.upper()
+    if leave_type not in ("PAID", "SICK", "UNPAID"):
+        return 400, {"error": "Invalid leave type. Choose from: PAID, SICK, UNPAID"}
+
+    # Overlap detection: existing.start_date <= new.end_date AND existing.end_date >= new.start_date
+    has_overlap = LeaveRequest.objects.filter(
+        user=user,
+        status__in=["PENDING", "APPROVED"],
+        start_date__lte=payload.end_date,
+        end_date__gte=payload.start_date,
+    ).exists()
+
+    if has_overlap:
+        return 400, {"error": "You already have a Pending or Approved leave overlapping with these dates"}
 
     leave = LeaveRequest.objects.create(
         user=user,
-        leave_type=payload.leave_type,
+        leave_type=leave_type,
         start_date=payload.start_date,
         end_date=payload.end_date,
         description=payload.description,
         status="PENDING",
     )
-    return 201, leave
+
+    total_days = (leave.end_date - leave.start_date).days + 1
+    p = Profile.objects.filter(user=user).first()
+
+    return 201, LeaveOut(
+        id=leave.id,
+        user_id=user.id,
+        employee_id=user.employee_id,
+        employee_name=p.full_name if p else user.employee_id,
+        profile_picture_url=p.profile_picture_url if p else None,
+        leave_type=leave.leave_type,
+        start_date=leave.start_date,
+        end_date=leave.end_date,
+        total_days=total_days,
+        status=leave.status,
+        description=leave.description,
+        admin_comments=leave.admin_comments,
+        created_at=leave.created_at,
+    )
+
+
+@api.get("/leaves", auth=jwt_auth, response=List[LeaveOut], tags=["Leaves"])
+def list_leaves(
+    request,
+    status: Optional[str] = None,
+    leave_type: Optional[str] = None,
+    employee_id: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+):
+    """
+    List all leave requests.
+    Admin sees company-wide requests; Employees see their own.
+    """
+    user: User = request.auth
+    qs = LeaveRequest.objects.select_related("user", "user__profile").order_by("-created_at")
+
+    if not user.is_admin:
+        qs = qs.filter(user=user)
+    else:
+        if employee_id:
+            qs = qs.filter(user__employee_id__icontains=employee_id.strip())
+
+    if status:
+        qs = qs.filter(status__iexact=status.strip())
+    if leave_type:
+        qs = qs.filter(leave_type__iexact=leave_type.strip())
+    if date_from:
+        qs = qs.filter(end_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(start_date__lte=date_to)
+
+    results = []
+    for l in qs:
+        u = l.user
+        p = getattr(u, "profile", None)
+        total_days = (l.end_date - l.start_date).days + 1
+
+        results.append(
+            LeaveOut(
+                id=l.id,
+                user_id=u.id,
+                employee_id=u.employee_id,
+                employee_name=p.full_name if p else u.employee_id,
+                profile_picture_url=p.profile_picture_url if p else None,
+                leave_type=l.leave_type,
+                start_date=l.start_date,
+                end_date=l.end_date,
+                total_days=total_days,
+                status=l.status,
+                description=l.description,
+                admin_comments=l.admin_comments,
+                created_at=l.created_at,
+            )
+        )
+
+    return results
+
+
+@api.post("/leaves/{leave_id}/approve", auth=jwt_auth, response={200: LeaveOut, 400: dict, 403: dict, 404: dict}, tags=["Leaves"])
+def approve_leave(request, leave_id: uuid.UUID, payload: LeaveActionIn):
+    """
+    Admin approves a leave request.
+    Performs retroactive attendance sync: updates absent dates to 'LEAVE'.
+    """
+    require_admin(request)
+    leave = LeaveRequest.objects.select_related("user", "user__profile").filter(id=leave_id).first()
+    if not leave:
+        return 404, {"error": "Leave request not found"}
+
+    leave.status = "APPROVED"
+    if payload.admin_comments:
+        leave.admin_comments = payload.admin_comments
+    leave.save()
+
+    # Retroactive Attendance Sync: for each date in range, ensure attendance is marked as LEAVE
+    curr_date = leave.start_date
+    while curr_date <= leave.end_date:
+        att = Attendance.objects.filter(user=leave.user, record_date=curr_date).first()
+        if att:
+            # If currently absent or has no punch-in, switch to LEAVE
+            if att.status in ("ABSENT", "HALF_DAY") or not att.check_in:
+                att.status = "LEAVE"
+                att.save(update_fields=["status", "updated_at"])
+        else:
+            Attendance.objects.create(
+                user=leave.user,
+                record_date=curr_date,
+                check_in=None,
+                check_out=None,
+                status="LEAVE",
+            )
+        curr_date += timedelta(days=1)
+
+    total_days = (leave.end_date - leave.start_date).days + 1
+    p = getattr(leave.user, "profile", None)
+
+    return 200, LeaveOut(
+        id=leave.id,
+        user_id=leave.user.id,
+        employee_id=leave.user.employee_id,
+        employee_name=p.full_name if p else leave.user.employee_id,
+        profile_picture_url=p.profile_picture_url if p else None,
+        leave_type=leave.leave_type,
+        start_date=leave.start_date,
+        end_date=leave.end_date,
+        total_days=total_days,
+        status=leave.status,
+        description=leave.description,
+        admin_comments=leave.admin_comments,
+        created_at=leave.created_at,
+    )
+
+
+@api.post("/leaves/{leave_id}/reject", auth=jwt_auth, response={200: LeaveOut, 400: dict, 403: dict, 404: dict}, tags=["Leaves"])
+def reject_leave(request, leave_id: uuid.UUID, payload: LeaveActionIn):
+    """Admin rejects a leave request."""
+    require_admin(request)
+    leave = LeaveRequest.objects.select_related("user", "user__profile").filter(id=leave_id).first()
+    if not leave:
+        return 404, {"error": "Leave request not found"}
+
+    leave.status = "REJECTED"
+    if payload.admin_comments:
+        leave.admin_comments = payload.admin_comments
+    leave.save()
+
+    total_days = (leave.end_date - leave.start_date).days + 1
+    p = getattr(leave.user, "profile", None)
+
+    return 200, LeaveOut(
+        id=leave.id,
+        user_id=leave.user.id,
+        employee_id=leave.user.employee_id,
+        employee_name=p.full_name if p else leave.user.employee_id,
+        profile_picture_url=p.profile_picture_url if p else None,
+        leave_type=leave.leave_type,
+        start_date=leave.start_date,
+        end_date=leave.end_date,
+        total_days=total_days,
+        status=leave.status,
+        description=leave.description,
+        admin_comments=leave.admin_comments,
+        created_at=leave.created_at,
+    )
+
+
+@api.delete("/leaves/{leave_id}/cancel", auth=jwt_auth, response={200: dict, 400: dict, 403: dict, 404: dict}, tags=["Leaves"])
+def cancel_leave(request, leave_id: uuid.UUID):
+    """Employee cancels their own pending leave request."""
+    current_user: User = request.auth
+    leave = LeaveRequest.objects.filter(id=leave_id).first()
+    if not leave:
+        return 404, {"error": "Leave request not found"}
+
+    if not current_user.is_admin and leave.user_id != current_user.id:
+        return 403, {"error": "You are not authorized to cancel this leave request"}
+
+    if leave.status != "PENDING":
+        return 400, {"error": "Only pending leave requests can be cancelled"}
+
+    leave.delete()
+    return 200, {"message": "Leave request cancelled successfully"}
+
+
+@api.get("/leaves/balance", auth=jwt_auth, response=LeaveBalanceOut, tags=["Leaves"])
+def get_leave_balance(request, user_id: Optional[uuid.UUID] = None):
+    """
+    Get annual leave allowance quotas and consumed days.
+    Paid Time Off: 18 days/year, Sick Leave: 12 days/year.
+    """
+    current_user: User = request.auth
+    target_user = current_user
+    if user_id and current_user.is_admin:
+        target_user = User.objects.filter(id=user_id).first() or current_user
+
+    current_year = date.today().year
+    approved_leaves = LeaveRequest.objects.filter(
+        user=target_user,
+        status="APPROVED",
+        start_date__year=current_year,
+    )
+
+    paid_total = 18
+    sick_total = 12
+    paid_used = 0
+    sick_used = 0
+    unpaid_used = 0
+
+    for l in approved_leaves:
+        days = (l.end_date - l.start_date).days + 1
+        if l.leave_type == "PAID":
+            paid_used += days
+        elif l.leave_type == "SICK":
+            sick_used += days
+        elif l.leave_type == "UNPAID":
+            unpaid_used += days
+
+    paid_remaining = max(0, paid_total - paid_used)
+    sick_remaining = max(0, sick_total - sick_used)
+
+    return LeaveBalanceOut(
+        paid_total=paid_total,
+        paid_used=paid_used,
+        paid_remaining=paid_remaining,
+        sick_total=sick_total,
+        sick_used=sick_used,
+        sick_remaining=sick_remaining,
+        unpaid_used=unpaid_used,
+    )

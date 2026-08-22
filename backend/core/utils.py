@@ -1,6 +1,6 @@
 import re
-from datetime import date, datetime
-from typing import Optional, Dict, Any
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional, Dict, Any, Tuple
 from core.models import User, Attendance, LeaveRequest
 
 def clean_alpha(text: str) -> str:
@@ -50,17 +50,75 @@ def generate_employee_id(company_name: str, first_name: str, last_name: str, yea
     base_id = f"{comp_prefix}{name_initials}{year}"
 
     # 4. Find next available sequence for this company/year
-    # Count all users with matching company prefix + year pattern
-    pattern = f"^{comp_prefix}.*{year}(\\d+)$"
-    existing_users = User.objects.filter(employee_id__startswith=comp_prefix, employee_id__contains=str(year))
-    
     seq = 1
-    # Try finding an unused sequence ID
     while True:
         candidate = f"{base_id}{seq:03d}"
         if not User.objects.filter(employee_id=candidate).exists():
             return candidate
         seq += 1
+
+
+def calculate_work_hours(check_in: Optional[datetime], check_out: Optional[datetime]) -> Tuple[float, float, str]:
+    """
+    Calculate work hours, extra/overtime hours, and attendance status:
+    - H_elapsed = (check_out - check_in) in hours
+    - H_work    = min(H_elapsed, 8.0)
+    - H_extra   = max(0.0, H_elapsed - 8.0)
+    
+    Status Resolution:
+    - >= 8.0h  -> PRESENT
+    - 4.0h - 8.0h -> HALF_DAY
+    - < 4.0h   -> ABSENT
+    """
+    if not check_in:
+        return 0.0, 0.0, "ABSENT"
+
+    if not check_out:
+        # Currently active shift
+        return 0.0, 0.0, "PRESENT"
+
+    elapsed_seconds = (check_out - check_in).total_seconds()
+    if elapsed_seconds < 0:
+        elapsed_seconds = 0
+
+    elapsed_hours = round(elapsed_seconds / 3600.0, 2)
+    work_hours = min(elapsed_hours, 8.0)
+    extra_hours = max(0.0, round(elapsed_hours - 8.0, 2))
+
+    if elapsed_hours >= 7.5:  # standard full day with grace margin
+        status = "PRESENT"
+    elif elapsed_hours >= 4.0:
+        status = "HALF_DAY"
+    else:
+        status = "ABSENT"
+
+    return work_hours, extra_hours, status
+
+
+def auto_close_previous_attendances(user: User, current_date: Optional[date] = None) -> int:
+    """
+    Edge case handler: 'Forgot to check out'.
+    Auto-close any open attendance records from prior dates.
+    Sets check_out = check_in + 8 hours and status = 'PRESENT'.
+    """
+    if not current_date:
+        current_date = date.today()
+
+    open_records = Attendance.objects.filter(
+        user=user,
+        record_date__lt=current_date,
+        check_out__isnull=True,
+    )
+
+    closed_count = 0
+    for record in open_records:
+        if record.check_in:
+            record.check_out = record.check_in + timedelta(hours=8)
+            record.status = "PRESENT"
+            record.save(update_fields=["check_out", "status", "updated_at"])
+            closed_count += 1
+
+    return closed_count
 
 
 def resolve_employee_status_dot(user: User, check_date: Optional[date] = None) -> str:

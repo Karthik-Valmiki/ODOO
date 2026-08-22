@@ -81,7 +81,6 @@ class EmployeeCreateIn(Schema):
     phone: Optional[str] = Field(None, example="+91 9876543211")
     address: Optional[str] = Field(None, example="123 MG Road, Bengaluru")
     profile_picture_url: Optional[str] = None
-    # Extended profile details (stored in salary_structure JSONB)
     department: Optional[str] = Field(None, example="Engineering")
     designation: Optional[str] = Field(None, example="Senior Developer")
     date_of_joining: Optional[str] = Field(None, example="2026-01-15")
@@ -157,13 +156,96 @@ class CompanyStatsOut(Schema):
 
 
 # ==========================================
-# Attendance & Leave Schemas
+# Attendance Schemas (Phase 5)
 # ==========================================
+
+class PunchStatusOut(Schema):
+    is_punched_in: bool
+    record_date: Optional[date] = None
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    work_hours: float = 0.0
+    extra_hours: float = 0.0
+    status: Optional[str] = None
+
+
+class AttendanceRecordOut(Schema):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    employee_id: str
+    employee_name: str
+    profile_picture_url: Optional[str] = None
+    record_date: date
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    work_hours: float = 0.0
+    extra_hours: float = 0.0
+    status: str
+
+
+class AttendanceSummaryOut(Schema):
+    total_present: int
+    total_half_days: int
+    total_absent: int
+    total_leaves: int
+    total_work_hours: float
+    total_overtime_hours: float
+    working_days_in_month: int
+
+
+class AttendanceOverrideIn(Schema):
+    user_id: uuid.UUID
+    record_date: date
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    status: str = Field("PRESENT", example="PRESENT")
+
 
 class AttendanceSchema(ModelSchema):
     class Meta:
         model = Attendance
         fields = ["id", "record_date", "check_in", "check_out", "status", "created_at"]
+
+
+# ==========================================
+# Leave Schemas (Phase 6)
+# ==========================================
+
+class LeaveApplyIn(Schema):
+    leave_type: str = Field(..., example="PAID")  # PAID, SICK, UNPAID
+    start_date: date = Field(..., example="2026-08-25")
+    end_date: date = Field(..., example="2026-08-27")
+    description: Optional[str] = Field(None, example="Family function")
+
+
+class LeaveOut(Schema):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    employee_id: str
+    employee_name: str
+    profile_picture_url: Optional[str] = None
+    leave_type: str
+    start_date: date
+    end_date: date
+    total_days: int
+    status: str
+    description: Optional[str] = None
+    admin_comments: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class LeaveActionIn(Schema):
+    admin_comments: Optional[str] = Field(None, example="Approved. Have a good break!")
+
+
+class LeaveBalanceOut(Schema):
+    paid_total: int
+    paid_used: int
+    paid_remaining: int
+    sick_total: int
+    sick_used: int
+    sick_remaining: int
+    unpaid_used: int
 
 
 class LeaveRequestSchema(ModelSchema):
