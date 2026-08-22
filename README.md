@@ -1,6 +1,7 @@
-# Odoo System Requirements
+## Dayflow - Human Resource Management System
+*Every workday, perfectly aligned.*
 
-A simple overview of the system features, user roles, and core tools for the platform.
+* A centralized HR platform built by Karthik and Akshay to digitize core operations like attendance tracking, leave approvals, and payroll visibility.
 
 ## User Roles & Authorization
 
