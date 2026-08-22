@@ -48,9 +48,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ currentUser }) =
   ];
 
   return (
-    <div className="flex flex-col flex-1 bg-[#F8F9FA] text-gray-800 min-h-[calc(100vh-64px)] p-8 gap-6">
+    <div className="flex flex-col flex-1 bg-[#F5F5F5] text-gray-800 min-h-[calc(100vh-56px)] px-6 py-5 gap-4">
       {/* Top Header & Navigation */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 max-w-7xl w-full mx-auto">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Attendance Logs</h1>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -109,7 +109,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ currentUser }) =
 
       {/* Summary Metric Cards */}
       {summary && (
-        <div className="max-w-7xl w-full mx-auto grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="w-full grid grid-cols-2 md:grid-cols-5 gap-3">
           <div className="bg-white border border-gray-200 p-4 rounded-3xl flex flex-col gap-1 shadow-2xs">
             <span className="text-[11px] text-gray-500 font-medium">Standard Working Days</span>
             <span className="text-xl font-extrabold text-gray-900">{summary.working_days_in_month} days</span>
@@ -134,7 +134,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({ currentUser }) =
       )}
 
       {/* Attendance Table */}
-      <div className="max-w-7xl w-full mx-auto bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-xs flex-1">
+      <div className="w-full bg-white border border-gray-200 rounded-xl overflow-hidden flex-1">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-gray-50 text-gray-500 border-b border-gray-200 font-bold uppercase text-[10px] tracking-wider">

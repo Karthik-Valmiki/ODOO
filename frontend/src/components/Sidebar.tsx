@@ -165,7 +165,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {currentUser?.full_name || "John Smith"}
               </p>
               <p className="text-xs text-gray-500 truncate">
-                {currentUser?.role === "ADMIN" ? "Administrator" : "PHP Developer"}
+                {currentUser?.role === "ADMIN"
+                  ? "Administrator"
+                  : (currentUser as any)?.salary_structure?.designation || currentUser?.employee_id || "Employee"}
               </p>
             </div>
           )}

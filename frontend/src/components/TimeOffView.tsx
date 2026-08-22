@@ -92,9 +92,9 @@ export const TimeOffView: React.FC<TimeOffViewProps> = ({ currentUser }) => {
   );
 
   return (
-    <div className="flex flex-col flex-1 bg-[#F8F9FA] text-gray-800 min-h-[calc(100vh-64px)] p-8 gap-6">
+    <div className="flex flex-col flex-1 bg-[#F5F5F5] text-gray-800 min-h-[calc(100vh-56px)] px-6 py-5 gap-4">
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 max-w-7xl w-full mx-auto">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
         <div>
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">Time Off & Absences</h1>
           <p className="text-xs text-gray-500 mt-0.5">
@@ -110,9 +110,9 @@ export const TimeOffView: React.FC<TimeOffViewProps> = ({ currentUser }) => {
         </button>
       </div>
 
-      {/* Quota Balance Cards matching Happy Solutions color tokens */}
+      {/* Quota Balance Cards */}
       {balance && (
-        <div className="max-w-7xl w-full mx-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-white border border-gray-200 p-5 rounded-3xl flex items-center justify-between shadow-2xs">
             <div className="flex flex-col gap-1">
               <span className="text-xs font-bold text-gray-700">Paid Vacation Time Off</span>
@@ -140,7 +140,7 @@ export const TimeOffView: React.FC<TimeOffViewProps> = ({ currentUser }) => {
       )}
 
       {/* Leave Requests Table */}
-      <div className="max-w-7xl w-full mx-auto bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-xs flex-1 flex flex-col">
+      <div className="w-full bg-white border border-gray-200 rounded-xl overflow-hidden flex-1 flex flex-col">
         {/* Search filter */}
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
           <div className="relative max-w-sm w-full">

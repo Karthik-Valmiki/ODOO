@@ -1,239 +1,143 @@
-# Dayflow — Human Resource Management System
+# Dayflow — Human Resource Management System (HRMS)
 
-> A full-stack HRMS built for the Odoo Hackathon.  
-> Backend: Django + DRF | Database: PostgreSQL 16 (Docker) | Auth: JWT (simplejwt)
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![Django](https://img.shields.io/badge/Django-5.2-green.svg)
+![Django Ninja](https://img.shields.io/badge/Django--Ninja-1.0+-orange.svg)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-blue.svg)
+![Status](https://img.shields.io/badge/Backend-Complete-brightgreen.svg)
+![Frontend Status](https://img.shields.io/badge/Frontend-In--Progress-yellow.svg)
 
----
-
-## Architecture
-
-```
-┌─────────────────────┐      localhost:8000
-│  Django REST API    │  ←──────────────────  HTTP Clients / Frontend
-│  (runs locally)     │
-└────────┬────────────┘
-         │ psycopg2 @ localhost:5433
-         ▼
-┌─────────────────────┐      localhost:5433 → container:5432
-│  PostgreSQL 16      │  (Docker Container: dayflow_db)
-│  (Docker)           │
-└─────────────────────┘
-         ↑
-┌─────────────────────┐      localhost:5050
-│  pgAdmin 4          │  (Docker Container: dayflow_pgadmin)
-│  (Docker, Dev Only) │
-└─────────────────────┘
-```
-
-The **backend and frontend run on your local machine**.  
-Only the **database and pgAdmin run in Docker** — keeping your system clean.
+> **Note:** The backend API and database architecture are fully operational and documented. Frontend application integration is currently in active development.
 
 ---
 
-## Prerequisites
+## 🏗️ Architecture
 
-| Tool | Version | Check |
-|---|---|---|
-| Docker Desktop | Latest | `docker --version` |
-| Python | 3.11+ | `python --version` |
-| pip | Latest | `pip --version` |
+```
+┌─────────────────────────┐          http://localhost:8000
+│  Frontend / API Client  │ ──────────────────────────────────────┐
+└─────────────────────────┘                                       │
+                                                                  ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      Django Backend (Ninja API)                   │
+│  - Endpoint Routing & Pydantic Validation (/api/...)              │
+│  - JWT Bearer Authentication & RBAC Middleware                    │
+│  - Business Logic (Attendance, Leaves, Payroll Engine)           │
+└─────────────────────────────────┬─────────────────────────────────┘
+                                  │ PostgreSQL (port 5433)
+                                  ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                      PostgreSQL 16 (Docker)                       │
+│  - Tables: users, profiles, attendance, leave_requests            │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+The system uses a decoupled architecture where the backend runs as a high-performance RESTful API powered by **Django Ninja** and **Pydantic**. Database persistence runs in an isolated **PostgreSQL 16** Docker container.
 
 ---
 
-## Setup (First Time)
+## 🔐 JWT Authentication System
 
-### 1. Clone the repo
-```bash
-git clone https://github.com/your-org/dayflow.git
-cd dayflow
-```
+Dayflow implements stateless **JSON Web Token (JWT)** authentication with Role-Based Access Control (RBAC):
 
-### 2. Create your `.env` file
-```bash
-cp .env.example .env
-```
+1. **Access Tokens:** Short-lived tokens containing `user_id` and `role` (`ADMIN` | `EMPLOYEE`). Must be passed in the HTTP request header:
+   ```http
+   Authorization: Bearer <access_token>
+   ```
+2. **Refresh Tokens:** Long-lived tokens used to issue fresh access tokens without requiring re-authentication via `/api/auth/refresh`.
+3. **Role-Based Access Control (RBAC):**
+   - `ADMIN`: Full access (create employees, approve/reject leaves, view company-wide analytics).
+   - `EMPLOYEE`: Restricted access (view own profile/salary, clock-in/out attendance, apply for leaves).
 
-Then open `.env` and fill in:
+---
 
-```env
-DB_PASSWORD=choose_a_strong_password
-SECRET_KEY=<generate below>
-```
+## 🚀 Backend Quickstart Setup
 
-**Generate your Django SECRET_KEY:**
-```bash
-# Option 1: openssl (recommended)
-openssl rand -hex 32
+### Prerequisites
+- Python 3.11+
+- Docker & Docker Desktop
 
-# Option 2: Python
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-### 3. Start the Database Container
+### 1. Database Setup
+Start the containerized PostgreSQL database:
 ```bash
 docker-compose up -d db
 ```
 
-Wait ~5 seconds, then verify it's healthy:
+### 2. Environment Configuration
+Create a `.env` file in the root directory:
+```env
+# Database Settings
+DB_NAME=dayflow_db
+DB_USER=dayflow_user
+DB_PASSWORD=dayflow_pass
+DB_HOST=localhost
+DB_PORT=5433
+
+# Django Settings
+SECRET_KEY=django-insecure-mv@#)dh93+*ovc_e987nc7g-i-x36acla--tdec$=si5vr*ul-
+DEBUG=True
+```
+
+### 3. Backend Setup & Run
+Navigate to the `backend/` directory, create a virtual environment, install dependencies, and start the server:
+
 ```bash
-docker ps
-# dayflow_db should show "healthy"
-```
-
-The schema is **automatically applied** from `db/init.sql` on first start.
-
-### 4. Verify the schema loaded
-```bash
-docker exec dayflow_db psql -U dayflow_user -d dayflow_db -c "\dt"
-```
-
-Expected output — 8 tables:
-```
-              List of relations
- Schema |        Name         | Type  |    Owner
---------+---------------------+-------+--------------
- public | attendance          | table | dayflow_user
- public | companies           | table | dayflow_user
- public | employee_profiles   | table | dayflow_user
- public | join_year_serials   | table | dayflow_user
- public | leave_requests      | table | dayflow_user
- public | salary_components   | table | dayflow_user
- public | salary_structures   | table | dayflow_user
- public | users               | table | dayflow_user
-```
-
-### 5. Setup Django backend
-```bash
+# Move to backend directory
 cd backend
+
+# Create and activate virtual environment
 python -m venv venv
 
-# Windows
-venv\Scripts\activate
-
-# Mac/Linux
+# Windows (PowerShell):
+.\venv\Scripts\Activate.ps1
+# Linux / macOS:
 source venv/bin/activate
 
+# Install dependencies & run migrations
 pip install -r requirements.txt
 python manage.py migrate
+
+# Start the development server
 python manage.py runserver
 ```
 
 ---
 
-## Docker Commands Reference
+## 📖 API Documentation & Testing
 
-```bash
-# Start DB only (recommended — backend runs locally)
-docker-compose up -d db
+Once the backend server is running, interactive OpenAPI / Swagger documentation is available at:
 
-# Start DB + pgAdmin (visual DB browser)
-docker-compose up -d db pgadmin
+👉 **`http://localhost:8000/api/docs`**
 
-# Stop all containers
-docker-compose down
+### Primary API Groups
 
-# Stop and DELETE all data (⚠️ irreversible)
-docker-compose down -v
-
-# View DB logs
-docker logs dayflow_db -f
-
-# Open psql shell inside container
-docker exec -it dayflow_db psql -U dayflow_user -d dayflow_db
-
-# Re-apply schema (if you change init.sql — requires volume wipe first)
-docker-compose down -v && docker-compose up -d db
-```
-
----
-
-## pgAdmin (Visual DB Manager)
-
-1. Run: `docker-compose up -d pgadmin`
-2. Open: http://localhost:5050
-3. Login: `admin@dayflow.dev` / `admin123`
-4. The **"Dayflow DB"** server is pre-configured — no manual setup needed
-
----
-
-## Port Reference
-
-| Service | Host Port | Container Port | URL |
-|---|---|---|---|
-| PostgreSQL | **5433** | 5432 | `localhost:5433` |
-| pgAdmin | **5050** | 80 | http://localhost:5050 |
-| Django API | **8000** | — | http://localhost:8000 |
-| Django API docs | **8000** | — | http://localhost:8000/api/schema/swagger/ |
-
-> **Why 5433?** Avoids conflict with any local PostgreSQL you might have running on 5432.
-
----
-
-## Environment Variables
-
-| Variable | Required | Description |
+| Endpoint Group | Base Path | Description |
 |---|---|---|
-| `DB_USER` | ✅ | PostgreSQL username |
-| `DB_PASSWORD` | ✅ | PostgreSQL password |
-| `DB_NAME` | ✅ | Database name |
-| `DB_HOST` | ✅ | `localhost` (local dev) or `db` (when API is also in Docker) |
-| `DB_PORT` | ✅ | `5433` |
-| `DATABASE_URL` | ✅ | Full connection string for dj-database-url |
-| `SECRET_KEY` | ✅ | Django secret key — generate with `openssl rand -hex 32` |
-| `DEBUG` | ✅ | `True` for dev, `False` for production |
+| **Health** | `/api/db-check` | Database connectivity & status check |
+| **Auth** | `/api/auth/*` | Admin signup, login (Email/Employee ID), refresh token |
+| **Employees** | `/api/employees/*` | Profile details, company roster, employee creation (Admin) |
+| **Attendance** | `/api/attendance/*` | Daily punch in/out, shift status, monthly summaries |
+| **Leaves** | `/api/leaves/*` | Leave applications, leave balances, Admin approve/reject |
+| **Company** | `/api/company/*` | Company-wide headcounts, attendance & leave metrics |
 
 ---
 
-## Database Schema
+## 📂 Repository Structure
 
-| Table | Description |
-|---|---|
-| `companies` | Company created by Admin on signup |
-| `users` | Auth identity: login_id, email, role, password hash |
-| `join_year_serials` | Serial counter for auto login_id generation |
-| `employee_profiles` | All profile data: Resume, Private Info, Job Info, Bank Details |
-| `salary_structures` | Base wage, work schedule, PF rates per employee |
-| `salary_components` | 6 salary components with percentage-based auto-calculation |
-| `attendance` | Daily check-in/out records with work_hours and extra_hours |
-| `leave_requests` | Leave applications with approval workflow |
-
----
-
-## User Roles
-
-| Role | Can Do |
-|---|---|
-| `ADMIN` | Create employees, approve leaves, view all data, manage salary |
-| `EMPLOYEE` | View own profile, check-in/out, apply for leave, view own salary |
-
-> Employees **cannot self-register**. Admin creates all employee accounts.  
-> System auto-generates login_id and a temporary password.  
-> Employee is **forced to change password** on first login.
-
----
-
-## Security Notes for Contributors
-
-- **Never commit `.env`** — it's gitignored
-- Generate your own `SECRET_KEY` — the one in `.env.example` is a placeholder
-- `force_password_change = True` for all system-created accounts
-- JWT tokens expire in 60 minutes (configurable)
-- All passwords hashed with bcrypt
-
----
-
-## Project Structure
-```
-dayflow/
-├── docker-compose.yml        # DB + pgAdmin containers
-├── .env.example              # Copy to .env and fill in
-├── .gitignore
-├── db/
-│   ├── init.sql              # Full schema (auto-runs on container start)
-│   └── pgadmin_servers.json  # pgAdmin auto-connect config
-├── backend/                  # Django project (to be created)
-│   ├── manage.py
-│   ├── requirements.txt
-│   └── ...
+```text
+.
+├── backend/                  # Django project root
+│   ├── core/                 # Models, Ninja API routes, schemas & auth
+│   │   ├── api.py            # API Endpoints
+│   │   ├── auth.py           # JWT generation & validation
+│   │   ├── models.py         # Database ORM models
+│   │   ├── schemas.py        # Pydantic request/response schemas
+│   │   └── utils.py          # Helper functions (payroll, IDs)
+│   ├── dayflow/              # Project settings & URL routing
+│   └── manage.py
+├── db/                       # PostgreSQL initialization scripts
+│   └── init.sql
+├── docker-compose.yml        # Docker service configuration for DB & pgAdmin
+├── .gitignore                # Git exclusion rules
 └── README.md
 ```

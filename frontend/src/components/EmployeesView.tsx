@@ -135,9 +135,9 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col flex-1 bg-[#F8F9FA] text-gray-800 min-h-[calc(100vh-64px)] p-8 gap-6">
+    <div className="flex flex-col flex-1 bg-[#F5F5F5] text-gray-800 min-h-[calc(100vh-56px)] px-6 py-5 gap-4">
       {/* Top Search & Actions Bar */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-4 max-w-7xl w-full mx-auto">
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
         <div className="relative flex-1 max-w-md w-full">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
           <input
@@ -189,27 +189,25 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
         )}
       </div>
 
-      {/* Legend & Real-Time Status Dot Guide */}
-      <div className="max-w-7xl w-full mx-auto flex items-center justify-between text-xs text-gray-500 bg-white border border-gray-200 px-5 py-2.5 rounded-2xl shadow-2xs">
-        <span className="font-semibold text-gray-700">Real-Time Attendance Status:</span>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#10B981]" />
-            <span>🟢 Present in office</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#3B82F6]" />
-            <span>🔵 On approved leave</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#F59E0B]" />
-            <span>🟡 Absent / unrecorded</span>
-          </div>
+      {/* Status Dot Legend */}
+      <div className="w-full flex items-center gap-5 text-xs text-gray-500 bg-white border border-gray-200 px-4 py-2 rounded-xl">
+        <span className="font-semibold text-gray-600">Status:</span>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
+          <span>Present</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-blue-500" />
+          <span>On Leave</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-400" />
+          <span>Absent</span>
         </div>
       </div>
 
-      {/* 3x3 Employee Cards Grid matching Wireframe Layout with Happy Solutions Aesthetics */}
-      <div className="max-w-7xl w-full mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 flex-1">
+      {/* Employee Cards Grid — 3 columns matching wireframe */}
+      <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 flex-1">
         {filteredEmployees.map((emp, idx) => {
           const dotColor =
             emp.status_dot === "GREEN"
@@ -228,21 +226,21 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
                 setActiveEmployee(emp);
                 setActiveTab("resume");
               }}
-              className="relative bg-white border border-gray-200 hover:border-[#2F65F6] hover:shadow-lg rounded-3xl p-6 transition-all duration-200 cursor-pointer flex flex-col items-center text-center gap-3 group"
+              className="relative bg-white border border-gray-200 hover:border-[#2F65F6] hover:shadow-md rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col items-center text-center gap-2.5 group"
             >
               {/* Real-time Status Dot in Top-Right Corner */}
               <div
-                className={`absolute top-4 right-4 w-3 h-3 rounded-full ${dotColor} ring-4 ring-white shadow-2xs`}
+                className={`absolute top-3 right-3 w-2.5 h-2.5 rounded-full ${dotColor} ring-2 ring-white`}
                 title={`Live Status: ${emp.status_dot}`}
               />
 
               {/* Profile Avatar */}
-              <div className={`w-18 h-18 rounded-2xl flex items-center justify-center text-2xl font-bold shadow-xs mt-1 ${getAvatarBg(idx)}`}>
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center text-xl font-bold mt-1 ${getAvatarBg(idx)}`}>
                 {emp.profile_picture_url ? (
                   <img
                     src={emp.profile_picture_url}
                     alt={emp.full_name}
-                    className="w-full h-full rounded-2xl object-cover"
+                    className="w-full h-full rounded-xl object-cover"
                   />
                 ) : (
                   <span>{emp.full_name.charAt(0)}</span>
@@ -250,19 +248,19 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
               </div>
 
               {/* Employee Information */}
-              <div className="flex flex-col items-center">
-                <h3 className="font-bold text-base text-gray-900 group-hover:text-[#2F65F6] transition-colors">
+              <div className="flex flex-col items-center gap-0.5 w-full">
+                <h3 className="font-bold text-sm text-gray-900 group-hover:text-[#2F65F6] transition-colors truncate max-w-full">
                   {emp.full_name}
                 </h3>
-                <p className="text-xs text-gray-500 font-medium">{designation}</p>
-                <span className="text-[11px] font-mono text-[#2F65F6] bg-blue-50 px-2.5 py-0.5 rounded-lg mt-1 border border-blue-100 font-semibold">
+                <p className="text-[11px] text-gray-500">{designation}</p>
+                <span className="text-[10px] font-mono text-[#2F65F6] bg-blue-50 px-2 py-0.5 rounded-md mt-0.5 border border-blue-100 font-semibold">
                   {emp.employee_id}
                 </span>
               </div>
 
-              <div className="w-full border-t border-gray-100 pt-3 flex items-center justify-between text-[11px] text-gray-500">
-                <span className="truncate">{emp.email}</span>
-                <span className="px-2 py-0.5 rounded-md bg-gray-100 text-gray-700 font-semibold">
+              <div className="w-full border-t border-gray-100 pt-2 flex items-center justify-between text-[10px] text-gray-400">
+                <span className="truncate max-w-[60%]">{emp.email}</span>
+                <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-semibold">
                   {dept}
                 </span>
               </div>
@@ -273,8 +271,8 @@ export const EmployeesView: React.FC<EmployeesViewProps> = ({
 
       {/* Tabbed Employee Profile Modal */}
       {activeEmployee && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white border border-gray-200 rounded-3xl shadow-2xl max-w-3xl w-full flex flex-col overflow-hidden max-h-[92vh]">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-xl max-w-2xl w-full flex flex-col overflow-hidden max-h-[90vh]">
             {/* Modal Header Banner */}
             <div className="p-6 bg-gray-50 border-b border-gray-200 flex items-start justify-between">
               <div className="flex items-center gap-4">
