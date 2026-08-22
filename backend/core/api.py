@@ -23,6 +23,7 @@ from core.utils import (
     calculate_salary_components,
     calculate_work_hours,
     auto_close_previous_attendances,
+    compute_monthly_payroll,
 )
 from core.schemas import (
     AdminSignupIn,
@@ -48,6 +49,10 @@ from core.schemas import (
     LeaveBalanceOut,
     LeaveRequestSchema,
     LeaveRequestIn,
+    SalaryStructureIn,
+    SalaryStructureOut,
+    PayslipOut,
+    PayrollCompanySummaryOut,
 )
 
 api = NinjaAPI(
@@ -348,7 +353,7 @@ def list_employees(
         if not current_user.is_admin and u.id != current_user.id:
             visible_salary = {
                 k: v for k, v in salary_data.items()
-                if k not in ("monthly_wage", "yearly_wage", "basic", "hra", "fixed_allowance", "pf_employee", "pf_employer")
+                if k not in ("monthly_wage", "yearly_wage", "basic", "hra", "fixed_allowance", "pf_employee", "pf_employer", "performance_bonus", "lta")
             }
 
         first_name = p.first_name if p else ""
@@ -410,7 +415,7 @@ def create_employee(request, payload: EmployeeCreateIn):
         is_verified=False,
     )
 
-    salary_breakdown = calculate_salary_components(payload.monthly_wage or 0.0)
+    salary_breakdown = calculate_salary_components(payload.monthly_wage or 50000.0)
 
     extended_data = {
         "company_name": company_name,
@@ -467,7 +472,7 @@ def get_employee(request, user_id: uuid.UUID):
     if not current_user.is_admin and current_user.id != target_user.id:
         salary_data = {
             k: v for k, v in salary_data.items()
-            if k not in ("monthly_wage", "yearly_wage", "basic", "hra", "fixed_allowance", "pf_employee", "pf_employer", "professional_tax")
+            if k not in ("monthly_wage", "yearly_wage", "basic", "hra", "fixed_allowance", "pf_employee", "pf_employer", "performance_bonus", "lta", "professional_tax")
         }
 
     status_dot = resolve_employee_status_dot(target_user)
@@ -623,15 +628,12 @@ def punch_in(request):
     today = date.today()
     now_time = datetime.now(timezone.utc)
 
-    # 1. Edge Case: Auto-close any unclosed attendances from prior days
     auto_close_previous_attendances(user, today)
 
-    # 2. Check today's attendance record
     attendance = Attendance.objects.filter(user=user, record_date=today).first()
     if attendance:
         if attendance.check_in and attendance.check_out is None:
             return 400, {"error": "You are already punched in today"}
-        # If employee punched out earlier and punches in again, clear check_out and resume
         attendance.check_in = now_time
         attendance.check_out = None
         attendance.status = "PRESENT"
@@ -715,7 +717,6 @@ def get_today_punch_status(request):
     if attendance.check_out:
         work_hrs, extra_hrs, _ = calculate_work_hours(attendance.check_in, attendance.check_out)
     elif attendance.check_in:
-        # Live elapsed work hours
         work_hrs, extra_hrs, _ = calculate_work_hours(attendance.check_in, datetime.now(timezone.utc))
 
     return PunchStatusOut(
@@ -805,7 +806,6 @@ def get_attendance_summary(
     m = month or now.month
     y = year or now.year
 
-    # Calculate total working days in this month (Monday-Friday)
     num_days = calendar.monthrange(y, m)[1]
     working_days = sum(1 for d in range(1, num_days + 1) if date(y, m, d).weekday() < 5)
 
@@ -892,10 +892,7 @@ def override_attendance(request, payload: AttendanceOverrideIn):
 
 @api.post("/leaves/apply", auth=jwt_auth, response={201: LeaveOut, 400: dict}, tags=["Leaves"])
 def apply_leave(request, payload: LeaveApplyIn):
-    """
-    Apply for time off.
-    Checks for overlapping Pending or Approved leaves.
-    """
+    """Apply for time off with overlap validation."""
     user: User = request.auth
 
     if payload.end_date < payload.start_date:
@@ -905,7 +902,6 @@ def apply_leave(request, payload: LeaveApplyIn):
     if leave_type not in ("PAID", "SICK", "UNPAID"):
         return 400, {"error": "Invalid leave type. Choose from: PAID, SICK, UNPAID"}
 
-    # Overlap detection: existing.start_date <= new.end_date AND existing.end_date >= new.start_date
     has_overlap = LeaveRequest.objects.filter(
         user=user,
         status__in=["PENDING", "APPROVED"],
@@ -954,10 +950,7 @@ def list_leaves(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
 ):
-    """
-    List all leave requests.
-    Admin sees company-wide requests; Employees see their own.
-    """
+    """List all leave requests."""
     user: User = request.auth
     qs = LeaveRequest.objects.select_related("user", "user__profile").order_by("-created_at")
 
@@ -1005,10 +998,7 @@ def list_leaves(
 
 @api.post("/leaves/{leave_id}/approve", auth=jwt_auth, response={200: LeaveOut, 400: dict, 403: dict, 404: dict}, tags=["Leaves"])
 def approve_leave(request, leave_id: uuid.UUID, payload: LeaveActionIn):
-    """
-    Admin approves a leave request.
-    Performs retroactive attendance sync: updates absent dates to 'LEAVE'.
-    """
+    """Admin approves leave request and triggers retroactive attendance sync."""
     require_admin(request)
     leave = LeaveRequest.objects.select_related("user", "user__profile").filter(id=leave_id).first()
     if not leave:
@@ -1019,12 +1009,10 @@ def approve_leave(request, leave_id: uuid.UUID, payload: LeaveActionIn):
         leave.admin_comments = payload.admin_comments
     leave.save()
 
-    # Retroactive Attendance Sync: for each date in range, ensure attendance is marked as LEAVE
     curr_date = leave.start_date
     while curr_date <= leave.end_date:
         att = Attendance.objects.filter(user=leave.user, record_date=curr_date).first()
         if att:
-            # If currently absent or has no punch-in, switch to LEAVE
             if att.status in ("ABSENT", "HALF_DAY") or not att.check_in:
                 att.status = "LEAVE"
                 att.save(update_fields=["status", "updated_at"])
@@ -1111,10 +1099,7 @@ def cancel_leave(request, leave_id: uuid.UUID):
 
 @api.get("/leaves/balance", auth=jwt_auth, response=LeaveBalanceOut, tags=["Leaves"])
 def get_leave_balance(request, user_id: Optional[uuid.UUID] = None):
-    """
-    Get annual leave allowance quotas and consumed days.
-    Paid Time Off: 18 days/year, Sick Leave: 12 days/year.
-    """
+    """Get annual leave allowance quotas and consumed days."""
     current_user: User = request.auth
     target_user = current_user
     if user_id and current_user.is_admin:
@@ -1153,4 +1138,145 @@ def get_leave_balance(request, user_id: Optional[uuid.UUID] = None):
         sick_used=sick_used,
         sick_remaining=sick_remaining,
         unpaid_used=unpaid_used,
+    )
+
+
+# ==========================================
+# Phase 7: Payroll & Salary Structure Endpoints
+# ==========================================
+
+@api.get("/salary/structure/{user_id}", auth=jwt_auth, response={200: SalaryStructureOut, 403: dict, 404: dict}, tags=["Salary"])
+def get_salary_structure(request, user_id: uuid.UUID):
+    """
+    Get the 6-component salary structure for an employee.
+    Admin can view any employee; Employees can view their own.
+    """
+    current_user: User = request.auth
+    if not current_user.is_admin and current_user.id != user_id:
+        return 403, {"error": "You are not authorized to view this salary structure"}
+
+    target_user = User.objects.select_related("profile").filter(id=user_id).first()
+    if not target_user:
+        return 404, {"error": "Employee not found"}
+
+    p = getattr(target_user, "profile", None)
+    salary_data = p.salary_structure if (p and isinstance(p.salary_structure, dict)) else {}
+
+    wage = float(salary_data.get("monthly_wage", 50000.0))
+    comp = calculate_salary_components(
+        monthly_wage=wage,
+        performance_bonus_pct=float(salary_data.get("performance_bonus_pct", 8.333)),
+        lta_pct=float(salary_data.get("lta_pct", 8.333)),
+        working_days_per_week=int(salary_data.get("working_days_per_week", 5)),
+        break_time_hours=float(salary_data.get("break_time_hours", 1.0)),
+        pf_rate=float(salary_data.get("pf_rate", 12.0)),
+        prof_tax=float(salary_data.get("professional_tax", 200.0)),
+    )
+
+    return 200, SalaryStructureOut(**comp)
+
+
+@api.put("/salary/structure/{user_id}", auth=jwt_auth, response={200: SalaryStructureOut, 400: dict, 403: dict, 404: dict}, tags=["Salary"])
+def update_salary_structure(request, user_id: uuid.UUID, payload: SalaryStructureIn):
+    """
+    Admin updates salary structure components and wage.
+    Automatically re-calculates all 6 components and statutory PF/tax.
+    """
+    require_admin(request)
+    target_user = User.objects.select_related("profile").filter(id=user_id).first()
+    if not target_user:
+        return 404, {"error": "Employee not found"}
+
+    profile, _ = Profile.objects.get_or_create(user=target_user)
+    curr_data = profile.salary_structure if isinstance(profile.salary_structure, dict) else {}
+
+    comp = calculate_salary_components(
+        monthly_wage=payload.monthly_wage,
+        performance_bonus_pct=payload.performance_bonus_pct or 8.333,
+        lta_pct=payload.lta_pct or 8.333,
+        working_days_per_week=payload.working_days_per_week or 5,
+        break_time_hours=payload.break_time_hours or 1.0,
+        pf_rate=payload.pf_rate or 12.0,
+        prof_tax=payload.professional_tax or 200.0,
+    )
+
+    curr_data.update(comp)
+    profile.salary_structure = curr_data
+    profile.save(update_fields=["salary_structure", "updated_at"])
+
+    return 200, SalaryStructureOut(**comp)
+
+
+@api.get("/payroll/payslip", auth=jwt_auth, response={200: PayslipOut, 403: dict, 404: dict}, tags=["Payroll"])
+def get_monthly_payslip(
+    request,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+    user_id: Optional[uuid.UUID] = None,
+):
+    """
+    Get detailed itemized monthly payslip.
+    Admin can specify any `user_id`; Employees receive their own payslip.
+    """
+    current_user: User = request.auth
+    target_user = current_user
+
+    if user_id:
+        if not current_user.is_admin and current_user.id != user_id:
+            return 403, {"error": "You are not authorized to view another employee's payslip"}
+        target_user = User.objects.select_related("profile").filter(id=user_id).first()
+        if not target_user:
+            return 404, {"error": "Employee not found"}
+
+    now = date.today()
+    m = month or now.month
+    y = year or now.year
+
+    payroll_data = compute_monthly_payroll(user=target_user, month=m, year=y)
+    return 200, PayslipOut(**payroll_data)
+
+
+@api.get("/payroll/company-summary", auth=jwt_auth, response={200: PayrollCompanySummaryOut, 403: dict}, tags=["Payroll"])
+def get_company_payroll_summary(
+    request,
+    month: Optional[int] = None,
+    year: Optional[int] = None,
+):
+    """
+    Admin company-wide payroll summary for a given month.
+    Aggregates total gross payout, net payout, PF, and tax deductions.
+    """
+    require_admin(request)
+    now = date.today()
+    m = month or now.month
+    y = year or now.year
+
+    all_employees = User.objects.select_related("profile").filter(role="EMPLOYEE").order_by("created_at")
+    payslips = []
+
+    total_gross = 0.0
+    total_net = 0.0
+    total_pf = 0.0
+    total_tax = 0.0
+
+    for emp in all_employees:
+        p_data = compute_monthly_payroll(user=emp, month=m, year=y)
+        payslip_obj = PayslipOut(**p_data)
+        payslips.append(payslip_obj)
+
+        total_gross += payslip_obj.gross_earnings
+        total_net += payslip_obj.net_payout
+        total_pf += payslip_obj.pf_deduction
+        total_tax += payslip_obj.prof_tax_deduction
+
+    return 200, PayrollCompanySummaryOut(
+        month=m,
+        year=y,
+        month_name=calendar.month_name[m],
+        total_employees_paid=len(payslips),
+        total_gross_payout=round(total_gross, 2),
+        total_net_payout=round(total_net, 2),
+        total_pf_contributions=round(total_pf, 2),
+        total_tax_deductions=round(total_tax, 2),
+        payslips=payslips,
     )

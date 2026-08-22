@@ -1,7 +1,8 @@
 import re
+import calendar
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
-from core.models import User, Attendance, LeaveRequest
+from core.models import User, Profile, Attendance, LeaveRequest
 
 def clean_alpha(text: str) -> str:
     """Strip all non-alphanumeric characters and uppercase."""
@@ -66,15 +67,14 @@ def calculate_work_hours(check_in: Optional[datetime], check_out: Optional[datet
     - H_extra   = max(0.0, H_elapsed - 8.0)
     
     Status Resolution:
-    - >= 8.0h  -> PRESENT
-    - 4.0h - 8.0h -> HALF_DAY
+    - >= 7.5h  -> PRESENT
+    - 4.0h - 7.5h -> HALF_DAY
     - < 4.0h   -> ABSENT
     """
     if not check_in:
         return 0.0, 0.0, "ABSENT"
 
     if not check_out:
-        # Currently active shift
         return 0.0, 0.0, "PRESENT"
 
     elapsed_seconds = (check_out - check_in).total_seconds()
@@ -85,7 +85,7 @@ def calculate_work_hours(check_in: Optional[datetime], check_out: Optional[datet
     work_hours = min(elapsed_hours, 8.0)
     extra_hours = max(0.0, round(elapsed_hours - 8.0, 2))
 
-    if elapsed_hours >= 7.5:  # standard full day with grace margin
+    if elapsed_hours >= 7.5:
         status = "PRESENT"
     elif elapsed_hours >= 4.0:
         status = "HALF_DAY"
@@ -131,7 +131,6 @@ def resolve_employee_status_dot(user: User, check_date: Optional[date] = None) -
     if not check_date:
         check_date = date.today()
 
-    # 1. Check attendance record for check_date
     attendance = Attendance.objects.filter(user=user, record_date=check_date).first()
     if attendance:
         if attendance.check_in and attendance.check_out is None:
@@ -143,7 +142,6 @@ def resolve_employee_status_dot(user: User, check_date: Optional[date] = None) -
         if attendance.status == "ABSENT":
             return "YELLOW"
 
-    # 2. Check if user is on an approved leave covering check_date
     has_approved_leave = LeaveRequest.objects.filter(
         user=user,
         status="APPROVED",
@@ -157,45 +155,226 @@ def resolve_employee_status_dot(user: User, check_date: Optional[date] = None) -
     return "YELLOW"
 
 
-def calculate_salary_components(monthly_wage: float) -> Dict[str, Any]:
+def calculate_salary_components(
+    monthly_wage: float,
+    performance_bonus_pct: float = 8.333,
+    lta_pct: float = 8.333,
+    working_days_per_week: int = 5,
+    break_time_hours: float = 1.0,
+    pf_rate: float = 12.0,
+    prof_tax: float = 200.0,
+) -> Dict[str, Any]:
     """
-    Calculate 6 salary components and statutory deductions based on Monthly Wage:
-    - Basic: 50% of Monthly Wage
-    - HRA: 50% of Basic (25% of Monthly Wage)
+    Calculate 6 salary components and statutory deductions based on Monthly Wage
+    matching the exact wireframe and 'Important' specification note:
+    
+    Components:
+    - Basic Salary: 50% of Monthly Wage
+    - House Rent Allowance (HRA): 50% of Basic (25% of Monthly Wage)
     - Standard Allowance: 4,167 fixed
-    - Performance Allowance: 0 (default)
-    - LTA: 0 (default)
-    - Fixed Allowance: Residual (monthly_wage - sum of above)
+    - Performance Bonus: 8.333% of Basic (or configurable %)
+    - Leave Travel Allowance (LTA): 8.333% of Basic (or configurable %)
+    - Fixed Allowance: Residual = Monthly Wage - Sum(all other 5 components)
+    
+    Contributions & Deductions:
     - PF Employee: 12% of Basic
     - PF Employer: 12% of Basic
-    - Professional Tax: 200/month
-    - Yearly Wage: monthly_wage * 12
+    - Professional Tax: 200/month (if wage > 15,000)
+    - Yearly Wage: Monthly Wage * 12
     """
     wage = float(monthly_wage or 0.0)
     basic = round(wage * 0.50, 2)
     hra = round(basic * 0.50, 2)
     standard_allowance = 4167.0
-    performance_allowance = 0.0
-    lta = 0.0
+    performance_bonus = round(basic * (performance_bonus_pct / 100.0), 2)
+    lta = round(basic * (lta_pct / 100.0), 2)
 
-    allocated = basic + hra + standard_allowance + performance_allowance + lta
+    allocated = basic + hra + standard_allowance + performance_bonus + lta
     fixed_allowance = max(0.0, round(wage - allocated, 2))
 
-    pf_employee = round(basic * 0.12, 2)
-    pf_employer = round(basic * 0.12, 2)
-    professional_tax = 200.0 if wage > 15000 else 0.0
+    pf_employee = round(basic * (pf_rate / 100.0), 2)
+    pf_employer = round(basic * (pf_rate / 100.0), 2)
+    professional_tax = prof_tax if wage > 15000 else 0.0
     yearly_wage = round(wage * 12, 2)
 
     return {
         "monthly_wage": wage,
         "yearly_wage": yearly_wage,
+        "working_days_per_week": working_days_per_week,
+        "break_time_hours": break_time_hours,
         "basic": basic,
+        "basic_pct": 50.0,
         "hra": hra,
+        "hra_pct": 25.0,  # 50% of Basic
         "standard_allowance": standard_allowance,
-        "performance_allowance": performance_allowance,
+        "performance_bonus": performance_bonus,
+        "performance_bonus_pct": performance_bonus_pct,
         "lta": lta,
+        "lta_pct": lta_pct,
         "fixed_allowance": fixed_allowance,
         "pf_employee": pf_employee,
         "pf_employer": pf_employer,
+        "pf_rate": pf_rate,
         "professional_tax": professional_tax,
+    }
+
+
+def compute_monthly_payroll(user: User, month: int, year: int) -> Dict[str, Any]:
+    """
+    Comprehensive attendance and leave driven monthly payroll computation engine:
+    1. Determines total standard working days in the month (Monday to Friday).
+    2. Gathers actual attendance (Present, Half Days, Approved Paid/Sick Leaves, Absences, Overtime).
+    3. Calculates Payable Ratio.
+    4. Computes itemized earned salary components, overtime pay, statutory deductions, and net payout.
+    """
+    profile = Profile.objects.filter(user=user).first()
+    salary_data = profile.salary_structure if (profile and isinstance(profile.salary_structure, dict)) else {}
+    
+    monthly_wage = float(salary_data.get("monthly_wage", 0.0))
+    if monthly_wage <= 0:
+        # Fallback to standard recalculation if not explicitly saved
+        monthly_wage = 50000.0
+
+    # Ensure all 6 component values are available
+    comp = calculate_salary_components(
+        monthly_wage=monthly_wage,
+        performance_bonus_pct=float(salary_data.get("performance_bonus_pct", 8.333)),
+        lta_pct=float(salary_data.get("lta_pct", 8.333)),
+        working_days_per_week=int(salary_data.get("working_days_per_week", 5)),
+        break_time_hours=float(salary_data.get("break_time_hours", 1.0)),
+        pf_rate=float(salary_data.get("pf_rate", 12.0)),
+        prof_tax=float(salary_data.get("professional_tax", 200.0)),
+    )
+
+    # 1. Total business days in month (Mon-Fri)
+    num_days = calendar.monthrange(year, month)[1]
+    total_working_days = sum(1 for d in range(1, num_days + 1) if date(year, month, d).weekday() < 5)
+
+    # 2. Query actual attendance in month
+    attendance_records = Attendance.objects.filter(
+        user=user,
+        record_date__year=year,
+        record_date__month=month,
+    )
+
+    present_count = 0
+    half_day_count = 0
+    leave_count = 0
+    absent_count = 0
+    total_overtime_hours = 0.0
+    recorded_dates = set()
+
+    for att in attendance_records:
+        recorded_dates.add(att.record_date)
+        if att.status == "PRESENT":
+            present_count += 1
+        elif att.status == "HALF_DAY":
+            half_day_count += 1
+        elif att.status == "LEAVE":
+            leave_count += 1
+        elif att.status == "ABSENT":
+            absent_count += 1
+
+        w_hrs, ot_hrs, _ = calculate_work_hours(att.check_in, att.check_out)
+        total_overtime_hours += ot_hrs
+
+    # 3. Check approved leaves in this month not already in attendance
+    approved_leaves = LeaveRequest.objects.filter(
+        user=user,
+        status="APPROVED",
+        start_date__lte=date(year, month, num_days),
+        end_date__gte=date(year, month, 1),
+    )
+    for leave in approved_leaves:
+        curr = max(leave.start_date, date(year, month, 1))
+        end = min(leave.end_date, date(year, month, num_days))
+        while curr <= end:
+            if curr.weekday() < 5 and curr not in recorded_dates:
+                leave_count += 1
+                recorded_dates.add(curr)
+            curr += timedelta(days=1)
+
+    # Calculate remaining unrecorded working days as absent
+    unrecorded_working_days = max(0, total_working_days - (present_count + half_day_count + leave_count + absent_count))
+    total_absent_days = absent_count + unrecorded_working_days
+
+    # 4. Payable Ratio
+    # Days with pay = Present + Paid Leaves + 0.5 * Half Days
+    paid_days = present_count + leave_count + (0.5 * half_day_count)
+    if total_working_days > 0:
+        payable_ratio = min(1.0, max(0.0, round(paid_days / total_working_days, 4)))
+    else:
+        payable_ratio = 1.0
+
+    # 5. Overtime Earnings
+    # Hourly rate = Monthly Wage / (Working Days * 8 hours)
+    hourly_rate = round(monthly_wage / (total_working_days * 8.0), 2) if total_working_days > 0 else 0.0
+    overtime_pay = round(total_overtime_hours * hourly_rate * 1.5, 2)
+
+    # 6. Itemized Earned Salary Components
+    earned_basic = round(comp["basic"] * payable_ratio, 2)
+    earned_hra = round(comp["hra"] * payable_ratio, 2)
+    earned_standard = round(comp["standard_allowance"] * payable_ratio, 2)
+    earned_performance = round(comp["performance_bonus"] * payable_ratio, 2)
+    earned_lta = round(comp["lta"] * payable_ratio, 2)
+    earned_fixed = round(comp["fixed_allowance"] * payable_ratio, 2)
+
+    gross_earnings = round(
+        earned_basic + earned_hra + earned_standard + earned_performance + earned_lta + earned_fixed + overtime_pay,
+        2,
+    )
+
+    # 7. Deductions
+    pf_deduction = round(earned_basic * (comp["pf_rate"] / 100.0), 2)
+    prof_tax_deduction = comp["professional_tax"] if (payable_ratio > 0 and monthly_wage > 15000) else 0.0
+    total_deductions = round(pf_deduction + prof_tax_deduction, 2)
+
+    # 8. Net Payout
+    net_payout = max(0.0, round(gross_earnings - total_deductions, 2))
+
+    return {
+        "month": month,
+        "year": year,
+        "month_name": calendar.month_name[month],
+        "user_id": user.id,
+        "employee_id": user.employee_id,
+        "employee_name": profile.full_name if profile else user.employee_id,
+        "department": salary_data.get("department", "General"),
+        "designation": salary_data.get("designation", "Employee"),
+        "bank_name": salary_data.get("bank_name"),
+        "account_number": salary_data.get("account_number"),
+        "pan_number": salary_data.get("pan_number"),
+        "uan_number": salary_data.get("uan_number"),
+        "total_working_days": total_working_days,
+        "present_days": present_count,
+        "half_days": half_day_count,
+        "leave_days": leave_count,
+        "absent_days": total_absent_days,
+        "paid_days": paid_days,
+        "payable_ratio": payable_ratio,
+        "overtime_hours": round(total_overtime_hours, 2),
+        "hourly_rate": hourly_rate,
+        "overtime_pay": overtime_pay,
+        # Base Salary Structure
+        "base_wage": monthly_wage,
+        "base_basic": comp["basic"],
+        "base_hra": comp["hra"],
+        "base_standard_allowance": comp["standard_allowance"],
+        "base_performance_bonus": comp["performance_bonus"],
+        "base_lta": comp["lta"],
+        "base_fixed_allowance": comp["fixed_allowance"],
+        # Itemized Earned Earnings
+        "earned_basic": earned_basic,
+        "earned_hra": earned_hra,
+        "earned_standard_allowance": earned_standard,
+        "earned_performance_bonus": earned_performance,
+        "earned_lta": earned_lta,
+        "earned_fixed_allowance": earned_fixed,
+        "gross_earnings": gross_earnings,
+        # Deductions
+        "pf_deduction": pf_deduction,
+        "prof_tax_deduction": prof_tax_deduction,
+        "total_deductions": total_deductions,
+        # Net Payout
+        "net_payout": net_payout,
     }

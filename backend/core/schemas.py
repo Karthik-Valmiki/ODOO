@@ -259,3 +259,100 @@ class LeaveRequestIn(Schema):
     start_date: date = Field(..., example="2026-08-25")
     end_date: date = Field(..., example="2026-08-27")
     description: Optional[str] = Field(None, example="Family function")
+
+
+# ==========================================
+# Payroll & Salary Schemas (Phase 7)
+# ==========================================
+
+class SalaryStructureIn(Schema):
+    monthly_wage: float = Field(..., example=50000.0)
+    working_days_per_week: Optional[int] = Field(5, example=5)
+    break_time_hours: Optional[float] = Field(1.0, example=1.0)
+    performance_bonus_pct: Optional[float] = Field(8.333, example=8.333)
+    lta_pct: Optional[float] = Field(8.333, example=8.333)
+    pf_rate: Optional[float] = Field(12.0, example=12.0)
+    professional_tax: Optional[float] = Field(200.0, example=200.0)
+
+
+class SalaryStructureOut(Schema):
+    monthly_wage: float
+    yearly_wage: float
+    working_days_per_week: int
+    break_time_hours: float
+    # 6 Components
+    basic: float
+    basic_pct: float
+    hra: float
+    hra_pct: float
+    standard_allowance: float
+    performance_bonus: float
+    performance_bonus_pct: float
+    lta: float
+    lta_pct: float
+    fixed_allowance: float
+    # Statutory
+    pf_employee: float
+    pf_employer: float
+    pf_rate: float
+    professional_tax: float
+
+
+class PayslipOut(Schema):
+    month: int
+    year: int
+    month_name: str
+    user_id: uuid.UUID
+    employee_id: str
+    employee_name: str
+    department: str
+    designation: str
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    pan_number: Optional[str] = None
+    uan_number: Optional[str] = None
+    # Attendance summary
+    total_working_days: int
+    present_days: int
+    half_days: int
+    leave_days: int
+    absent_days: int
+    paid_days: float
+    payable_ratio: float
+    overtime_hours: float
+    hourly_rate: float
+    overtime_pay: float
+    # Base Salary components
+    base_wage: float
+    base_basic: float
+    base_hra: float
+    base_standard_allowance: float
+    base_performance_bonus: float
+    base_lta: float
+    base_fixed_allowance: float
+    # Earned Salary components
+    earned_basic: float
+    earned_hra: float
+    earned_standard_allowance: float
+    earned_performance_bonus: float
+    earned_lta: float
+    earned_fixed_allowance: float
+    gross_earnings: float
+    # Deductions
+    pf_deduction: float
+    prof_tax_deduction: float
+    total_deductions: float
+    # Net Payout
+    net_payout: float
+
+
+class PayrollCompanySummaryOut(Schema):
+    month: int
+    year: int
+    month_name: str
+    total_employees_paid: int
+    total_gross_payout: float
+    total_net_payout: float
+    total_pf_contributions: float
+    total_tax_deductions: float
+    payslips: List[PayslipOut]
