@@ -1,7 +1,7 @@
 # Dayflow - Human Resource Management System
 *Every workday, perfectly aligned.*
 
-A centralized HR platform built by Karthik and Akshay to digitize core operations like attendance tracking, leave approvals, and payroll visibility.
+A centralized HR platform built by Karthik and Shrihan to digitize core operations like attendance tracking, leave approvals, and payroll visibility.
 
 ## User Roles & Authorization
 
