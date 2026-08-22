@@ -11,7 +11,7 @@ export const apiClient = axios.create({
 
 // Request interceptor to attach JWT Bearer token
 apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem("dayflow_access_token");
+  const token = localStorage.getItem("workdesk_access_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -25,20 +25,20 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const refreshToken = localStorage.getItem("dayflow_refresh_token");
+      const refreshToken = localStorage.getItem("workdesk_refresh_token");
       if (refreshToken) {
         try {
           const res = await axios.post(`${API_BASE_URL}/auth/refresh`, {
             refresh_token: refreshToken,
           });
           const newAccessToken = res.data.access_token;
-          localStorage.setItem("dayflow_access_token", newAccessToken);
+          localStorage.setItem("workdesk_access_token", newAccessToken);
           originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
           return apiClient(originalRequest);
         } catch (refreshErr) {
-          localStorage.removeItem("dayflow_access_token");
-          localStorage.removeItem("dayflow_refresh_token");
-          localStorage.removeItem("dayflow_user");
+          localStorage.removeItem("workdesk_access_token");
+          localStorage.removeItem("workdesk_refresh_token");
+          localStorage.removeItem("workdesk_user");
           window.location.reload();
         }
       }

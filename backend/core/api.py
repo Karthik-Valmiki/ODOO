@@ -56,7 +56,7 @@ from core.schemas import (
 )
 
 api = NinjaAPI(
-    title="Dayflow HRMS API",
+    title="WorkDesk HRMS API",
     version="1.0.0",
     description="Every workday, perfectly aligned. Comprehensive HRMS Backend API.",
 )
@@ -189,7 +189,7 @@ def login(request, payload: LoginIn):
     if not company_name:
         admin_profile = Profile.objects.filter(user__role="ADMIN").first()
         if admin_profile and isinstance(admin_profile.salary_structure, dict):
-            company_name = admin_profile.salary_structure.get("company_name", "Dayflow")
+            company_name = admin_profile.salary_structure.get("company_name", "WorkDesk")
             company_logo = admin_profile.salary_structure.get("company_logo_url")
 
     access_token = create_access_token(user_id=str(user.id), role=user.role)
@@ -391,10 +391,10 @@ def create_employee(request, payload: EmployeeCreateIn):
         return 400, {"error": f"An employee with email '{payload.email}' already exists"}
 
     admin_profile = Profile.objects.filter(user=admin_user).first()
-    company_name = "Dayflow"
+    company_name = "WorkDesk"
     company_logo = None
     if admin_profile and isinstance(admin_profile.salary_structure, dict):
-        company_name = admin_profile.salary_structure.get("company_name", "Dayflow")
+        company_name = admin_profile.salary_structure.get("company_name", "WorkDesk")
         company_logo = admin_profile.salary_structure.get("company_logo_url")
 
     employee_id = generate_employee_id(
@@ -580,10 +580,10 @@ def delete_employee(request, user_id: uuid.UUID):
 def get_company_stats(request):
     """Get dashboard stats: total count, present, on leave, and absent."""
     admin_profile = Profile.objects.filter(user__role="ADMIN").first()
-    company_name = "Dayflow HRMS"
+    company_name = "WorkDesk HRMS"
     company_logo = None
     if admin_profile and isinstance(admin_profile.salary_structure, dict):
-        company_name = admin_profile.salary_structure.get("company_name", "Dayflow HRMS")
+        company_name = admin_profile.salary_structure.get("company_name", "WorkDesk HRMS")
         company_logo = admin_profile.salary_structure.get("company_logo_url")
 
     today = date.today()

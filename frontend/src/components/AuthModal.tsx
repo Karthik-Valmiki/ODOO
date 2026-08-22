@@ -17,10 +17,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   const [password, setPassword] = useState("AdminPassword@2026");
 
   // Sign Up Form
-  const [companyName, setCompanyName] = useState("Happy Solutions");
+  const [companyName, setCompanyName] = useState("WorkDesk");
   const [firstName, setFirstName] = useState("John");
   const [lastName, setLastName] = useState("Smith");
-  const [email, setEmail] = useState("admin@happysolutions.com");
+  const [email, setEmail] = useState("admin@workdesk.com");
   const [signUpPassword, setSignUpPassword] = useState("Admin@12345");
   const [confirmPassword, setConfirmPassword] = useState("Admin@12345");
 
@@ -40,8 +40,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
       });
 
       const { access_token, refresh_token, force_password_change, user } = res.data;
-      localStorage.setItem("dayflow_access_token", access_token);
-      localStorage.setItem("dayflow_refresh_token", refresh_token);
+      localStorage.setItem("workdesk_access_token", access_token);
+      localStorage.setItem("workdesk_refresh_token", refresh_token);
 
       if (force_password_change) {
         setForceMode(true);
@@ -70,8 +70,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
       });
 
       const { access_token, refresh_token, user } = res.data;
-      localStorage.setItem("dayflow_access_token", access_token);
-      localStorage.setItem("dayflow_refresh_token", refresh_token);
+      localStorage.setItem("workdesk_access_token", access_token);
+      localStorage.setItem("workdesk_refresh_token", refresh_token);
       onSuccess(user, { access_token, refresh_token });
     } catch (err: any) {
       setError(err.response?.data?.error || "Registration failed.");
@@ -91,8 +91,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
       });
       const meRes = await apiClient.get("/auth/me");
       onSuccess(meRes.data, {
-        access_token: localStorage.getItem("dayflow_access_token") || "",
-        refresh_token: localStorage.getItem("dayflow_refresh_token") || "",
+        access_token: localStorage.getItem("workdesk_access_token") || "",
+        refresh_token: localStorage.getItem("workdesk_refresh_token") || "",
       });
     } catch (err: any) {
       setError(err.response?.data?.error || "Password change failed.");
@@ -113,7 +113,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               <path d="M8 14.5C9.5 16 14.5 16 16 14.5" stroke="white" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
-          <h2 className="text-xl font-bold text-gray-900 tracking-tight">Happy Solutions HRMS</h2>
+          <h2 className="text-xl font-bold text-gray-900 tracking-tight">WorkDesk HRMS</h2>
           <p className="text-xs text-gray-500">Every workday, perfectly aligned</p>
         </div>
 
@@ -168,7 +168,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 required
-                placeholder="e.g. Happy Solutions Inc"
+                placeholder="e.g. WorkDesk Inc"
                 className="px-3.5 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -273,7 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
               disabled={loading}
               className="py-3 bg-[#2F65F6] hover:bg-[#2555D8] text-white font-semibold rounded-xl shadow-xs transition-colors"
             >
-              {loading ? "Signing In..." : "Sign In to Dayflow"}
+              {loading ? "Signing In..." : "Sign In to WorkDesk"}
             </button>
             <p className="text-center text-gray-500">
               New organization?{" "}

@@ -10,7 +10,7 @@ from ninja.security import HttpBearer
 from ninja.errors import HttpError
 from core.models import User
 
-JWT_SECRET = getattr(settings, "SECRET_KEY", "dayflow-secret-key-2026")
+JWT_SECRET = getattr(settings, "SECRET_KEY", "workdesk-secret-key-2026")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_EXPIRE_MINUTES", "1440"))  # 24 hours for dev/hackathon convenience
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_EXPIRE_DAYS", "7"))

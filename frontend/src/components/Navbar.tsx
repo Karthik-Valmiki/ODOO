@@ -106,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
           <span className="font-bold text-sm text-gray-900 whitespace-nowrap truncate max-w-[120px]">
-            {currentUser?.company_name || "Dayflow"}
+            {currentUser?.company_name || "WorkDesk"}
           </span>
         </div>
 
