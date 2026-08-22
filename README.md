@@ -2,7 +2,7 @@
 
 **WorkDesk** is a full-stack, enterprise-grade Human Resource Management System designed to handle core HR operations cleanly and efficiently.
 
-## ⚡ Quick Start with Docker (Recommended)
+## Quick Start with Docker (Recommended)
 
 Run the entire stack and automatically open all links in your browser with one command:
 
@@ -12,19 +12,19 @@ Run the entire stack and automatically open all links in your browser with one c
 
 > **That's it.** The script builds the images, starts all 4 containers, waits for them to be healthy, prints the links, and opens them in your browser automatically.
 
-### 🔗 Application Links
+### Application Links
 
 Once running, the services are available at:
 
-* 🌐 **Frontend Web App:** [http://localhost](http://localhost)
-* 📑 **API Documentation (Swagger UI):** [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
-* 🗄️ **Database Admin (pgAdmin):** [http://localhost:5050](http://localhost:5050)
+*  **Frontend Web App:** [http://localhost](http://localhost)
+*  **API Documentation (Swagger UI):** [http://localhost:8000/api/docs](http://localhost:8000/api/docs)
+*  **Database Admin (pgAdmin):** [http://localhost:5050](http://localhost:5050)
   * **Email:** `admin@workdesk.dev`
   * **Password:** `admin123`
 
 ---
 
-## 🛠️ Local Development Setup
+##  Local Development Setup
 
 If you prefer running backend and frontend services separately without Docker:
 
@@ -63,7 +63,7 @@ npm run dev
 
 ---
 
-## 🏗️ Architecture & Features
+##  Architecture & Features
 
 ### Tech Stack
 - **Backend:** Python 3.11, Django 5.x, Django Ninja (Pydantic schemas)
